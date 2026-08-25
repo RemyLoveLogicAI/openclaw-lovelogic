@@ -1,0 +1,21 @@
+{
+  "name": "@openclaw-lovelogic/memory-kernel",
+  "version": "0.1.0",
+  "description": "Consent-native persistent memory architecture — consent-lease governed vector memory with provable purge.",
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./ConsentGrant": "./src/ConsentGrant/index.ts",
+    "./Kernel": "./src/Kernel/index.ts",
+    "./PersonaContract": "./src/PersonaContract/index.ts",
+    "./Verifier": "./src/Verifier/index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}

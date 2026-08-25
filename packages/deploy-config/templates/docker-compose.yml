@@ -1,0 +1,20 @@
+version: "3.9"
+services:
+  memory-kernel:
+    build: ../packages/memory-kernel
+    ports:
+      - "37700:37700"
+    environment:
+      - OPENCLAW_API_KEY=${OPENCLAW_API_KEY}
+      - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
+    restart: unless-stopped
+
+  openclaw-gateway:
+    image: openclaw/openclaw:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - MEMORY_KERNEL_URL=http://memory-kernel:37700
+    depends_on:
+      - memory-kernel
+    restart: unless-stopped

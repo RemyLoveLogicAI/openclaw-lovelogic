@@ -1,0 +1,9 @@
+name = "openclaw-deploy"
+compatibility_date = "2026-01-01"
+
+[vars]
+MEMORY_KERNEL_URL = "https://memory-kernel.openclaw-lovelogic.workers.dev"
+
+[[durable_objects.bindings]]
+name = "MEMORY"
+class_name = "MemoryStore"

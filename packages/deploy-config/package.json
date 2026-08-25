@@ -1,0 +1,13 @@
+{
+  "name": "@openclaw-lovelogic/deploy-config",
+  "version": "0.1.0",
+  "description": "Deployment configuration templates and scripts for OpenClaw downstream deployments.",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}

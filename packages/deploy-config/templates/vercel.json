@@ -1,0 +1,9 @@
+{
+  "framework": "next",
+  "buildCommand": "pnpm build",
+  "devCommand": "pnpm dev",
+  "env": {
+    "OPENCLAW_API_KEY": "@openclaw-api-key",
+    "MEMORY_KERNEL_URL": "@memory-kernel-url"
+  }
+}
