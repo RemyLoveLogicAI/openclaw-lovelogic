@@ -1,6 +1,6 @@
 # openclaw-lovelogic
 
-> LoveLogicAI's downstream layer for [OpenClaw](https://github.com/openclaw/openclaw) — consent-native memory kernel, deployment config, and agent skills.
+> LoveLogicAI's downstream layer for [OpenClaw](https://github.com/openclaw/openclaw) — consent-native memory kernel, deployment config, agent skills, and the $LOVE token.
 
 ## What this is
 
@@ -12,6 +12,7 @@ OpenClaw (384k+ stars) is a personal AI assistant platform. This repo is **not a
 |---------|-------------|
 | `@openclaw-lovelogic/memory-kernel` | Consent-native persistent memory architecture with provable vector purge. Consent-lease model → MemoryKernel → Verifier. |
 | `@openclaw-lovelogic/deploy-config` | Deployment configuration templates for Vercel, Cloudflare Workers, and Docker. |
+| `@openclaw-lovelogic/love-token` | $LOVE — ERC-20 on Base. Native currency for SAK agent economy. Epoch-based merkle emission. |
 
 ## Architecture
 
@@ -19,16 +20,20 @@ OpenClaw (384k+ stars) is a personal AI assistant platform. This repo is **not a
 openclaw/openclaw (platform, npm dependency)
         │
         ▼
-┌─────────────────────────────────┐
-│    openclaw-lovelogic            │
-│  ┌─────────────────────────┐    │
-│  │   memory-kernel          │    │  ConsentGrant → Kernel → Verifier
-│  │   (L2 Owned Inference)   │    │  Provable purge on lease revocation
-│  └─────────────────────────┘    │
-│  ┌─────────────────────────┐    │
-│  │   deploy-config          │    │  Vercel / Cloudflare / Docker templates
-│  └─────────────────────────┘    │
-└─────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│    openclaw-lovelogic                        │
+│  ┌──────────────────────────────────┐        │
+│  │   memory-kernel                   │        │  ConsentGrant → Kernel → Verifier
+│  │   (L2 Owned Inference)            │        │  Provable purge on lease revocation
+│  └──────────────────────────────────┘        │
+│  ┌──────────────────────────────────┐        │
+│  │   love-token                      │        │  ERC-20 on Base
+│  │   (L3 P&L + L4 Marketplace)       │        │  Epoch-based agent reward emission
+│  └──────────────────────────────────┘        │
+│  ┌──────────────────────────────────┐        │
+│  │   deploy-config                   │        │  Vercel / Cloudflare / Docker templates
+│  └──────────────────────────────────┘        │
+└─────────────────────────────────────────────┘
 ```
 
 ## Key concept: consent-lease memory
@@ -39,8 +44,16 @@ Every memory is governed by a **consent lease**. Revoking the lease doesn't just
 consent-lease revocation → vector purge → semantic divergence
 ```
 
-Before revocation: `semanticDistance(original, retrieved) = 0`
-After revocation + purge: `semanticDistance = ∞` (maximal divergence)
+## Key concept: $LOVE agent economy
+
+$LOVE is the native currency for SAK's agent-to-agent commerce:
+
+```
+agent completes task → earns LOVE (epoch emission)
+agent needs inference → spends LOVE on L2 inference
+agent delegates sub-task → pays LOVE to sub-agent (L4)
+agent P&L settled → on-chain proof in LOVE (L3)
+```
 
 ## Usage
 
@@ -51,39 +64,16 @@ pnpm install
 # Run tests
 pnpm test
 
-# Type check
-pnpm typecheck
-```
-
-## Memory Kernel
-
-```typescript
-import { MemoryKernel, issueGrant, verify } from "@openclaw-lovelogic/memory-kernel";
-
-// Issue a consent lease
-const grant = await issueGrant("persona:alice/memory:childhood-home", "agent:1", "read", 3600000);
-
-// Store a memory under the lease
-const kernel = new MemoryKernel();
-kernel.store(grant.resourceId, [0.9, 0.1, 0.42, 0.05], grant);
-
-// Verify consent before retrieval
-if (await verify(grant)) {
-  const memory = kernel.retrieve(grant.resourceId);
-}
-
-// Revoke → purge → provable forgetting
-revokeGrant(grant);
-kernel.purge(grant.resourceId);
-// semanticDistance now = ∞
+# Build contracts (requires Foundry)
+cd packages/love-token && forge build
 ```
 
 ## Relationship to LoveLogicAI stack
 
-- **SAK (Sovereign Agent Kernel)** — economic kernel, this is the L2 Owned Inference layer
+- **SAK (Sovereign Agent Kernel)** — economic kernel, $LOVE is the settlement layer
 - **AgentOS** — governance kernel, uses consent-lease for capability tokens
 - **MCP Super-Server** — voice/tool layer, connects via the memory-kernel API
-- **PixelHQ ULTRA** — mission control HUD, visualizes memory state
+- **PixelHQ ULTRA** — mission control HUD, visualizes memory state + $LOVE flows
 
 ## License
 

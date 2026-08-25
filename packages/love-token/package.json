@@ -1,0 +1,12 @@
+{
+  "name": "@openclaw-lovelogic/love-token",
+  "version": "0.1.0",
+  "description": "LOVE — ERC-20 token for the SAK agent economy. Agent rewards, on-chain P&L proofs.",
+  "license": "MIT",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test",
+    "deploy": "bash scripts/deploy.sh --network base"
+  },
+  "devDependencies": {}
+}

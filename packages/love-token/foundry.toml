@@ -1,0 +1,8 @@
+[profile.default]
+src = "contracts"
+out = "out"
+libs = ["lib"]
+solc = "0.8.24"
+
+[profile.default.dependencies]
+openzeppelin = { version = "5.0", url = "https://github.com/OpenZeppelin/openzeppelin-contracts" }
