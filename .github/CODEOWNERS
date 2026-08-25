@@ -1,0 +1,8 @@
+# Default owner
+*                           @RemyLoveLogicAI
+
+# Contracts require extra scrutiny
+/packages/love-token/contracts/   @RemyLoveLogicAI
+
+# CI/CD infrastructure
+/.github/                        @RemyLoveLogicAI

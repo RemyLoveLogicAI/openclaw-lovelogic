@@ -1,0 +1,30 @@
+name: Feature Request
+description: Propose a new feature or enhancement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Feature description
+    validations:
+      required: true
+  - type: dropdown
+    id: sak-layer
+    attributes:
+      label: SAK Layer
+      options:
+        - L1 — Persistent Identity
+        - L2 — Owned Inference
+        - L3 — P&L Accountability
+        - L4 — Sub-Agent Marketplace
+        - L5 — Self-Modification
+        - Cross-layer
+        - N/A
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why is this needed?
+    validations:
+      required: true

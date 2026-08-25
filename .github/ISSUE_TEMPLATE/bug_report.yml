@@ -1,0 +1,43 @@
+name: Bug Report
+description: Report a bug in contracts, packages, or infrastructure
+labels: ["bug"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect?
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - LOVE token (ERC-20)
+        - AgentRegistry
+        - PnLOracle
+        - veLOVE
+        - memory-kernel
+        - deploy-config
+        - CI/CD
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Critical (funds at risk)
+        - High (core functionality broken)
+        - Medium (feature broken, workaround exists)
+        - Low (cosmetic / minor)
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
