@@ -6,3 +6,8 @@ dist/
 .DS_Store
 coverage/
 .pnpm-store/
+
+# Foundry deps
+packages/love-token/lib/
+packages/love-token/cache/
+packages/love-token/out/

@@ -74,7 +74,7 @@ contract veLOVE is Ownable, ReentrancyGuard {
     function lock(uint256 _amount, uint256 _duration) external nonReentrant {
         require(_amount > 0, "Cannot lock 0");
         require(_duration >= MIN_LOCK && _duration <= MAX_LOCK, "Invalid lock duration");
-        require(locks[msg.sender].amount == 0, "Already locked — extend or unlock first");
+        require(locks[msg.sender].amount == 0, "Already locked extend or unlock first");
         require(loveToken.transferFrom(msg.sender, address(this), _amount), "Transfer failed");
 
         uint256 unlockAt = block.timestamp + _duration;

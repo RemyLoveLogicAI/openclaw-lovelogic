@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "./interfaces/IPnLOracle.sol";
 import "./LOVE.sol";
 import "./AgentRegistry.sol";
@@ -26,6 +27,7 @@ import "./AgentRegistry.sol";
  */
 contract PnLOracle is IPnLOracle, Ownable, ReentrancyGuard {
     using ECDSA for bytes32;
+    using MessageHashUtils for bytes32;
 
     LOVE public loveToken;
     AgentRegistry public agentRegistry;
@@ -71,7 +73,7 @@ contract PnLOracle is IPnLOracle, Ownable, ReentrancyGuard {
         PnLReport[] storage reports = epochReports[epoch];
 
         require(reports.length > 0, "No reports for epoch");
-        require(!epochSummaries[epoch].merkleRoot != bytes32(0) || epochSummaries[epoch].totalAllocated == 0, "Epoch already finalized");
+        require(epochSummaries[epoch].totalAllocated == 0, "Epoch already finalized");
 
         uint256 totalPnL = 0;
         uint256 totalTasks = 0;
@@ -127,7 +129,7 @@ contract PnLOracle is IPnLOracle, Ownable, ReentrancyGuard {
             _report.timestamp
         ));
         bytes32 ethSignedHash = messageHash.toEthSignedMessageHash();
-        address recovered = ethSignedHash.recover(_report.signature);
+        address recovered = ECDSA.recover(ethSignedHash, _report.signature);
         return recovered == orchestrator;
     }
 

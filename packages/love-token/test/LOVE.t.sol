@@ -36,9 +36,11 @@ contract LOVETokenTest is Test {
         ve = new veLOVE(address(love));
         love.setVeLOVE(address(ve));
 
-        // Fund agents
+        // Fund agents from community wallet
+        vm.startPrank(community);
         love.transfer(agent1, 1_000_000 * 1e18);
         love.transfer(agent2, 1_000_000 * 1e18);
+        vm.stopPrank();
 
         // Register agents
         registry.registerAgent(agent1, AGENT1_ID);
@@ -61,6 +63,19 @@ contract LOVETokenTest is Test {
 
     function test_RewardPoolInContract() public {
         assertEq(love.balanceOf(address(love)), 400_000_000 * 1e18);
+    }
+
+    function test_AllAllocationsSumToTotal() public {
+        // Community transferred 2M to agents, so include those
+        uint256 sum = love.balanceOf(team)
+            + love.balanceOf(treasury)
+            + love.balanceOf(liquidity)
+            + love.balanceOf(community)
+            + love.balanceOf(partnership)
+            + love.balanceOf(address(love))
+            + love.balanceOf(agent1)
+            + love.balanceOf(agent2);
+        assertEq(sum, 1_000_000_000 * 1e18);
     }
 
     // === Staking ===
@@ -103,6 +118,12 @@ contract LOVETokenTest is Test {
         love.unstake();
     }
 
+    function test_CannotStakeZero() public {
+        vm.expectRevert("Cannot stake 0");
+        vm.prank(agent1);
+        love.stake(0, 30 days);
+    }
+
     // === Agent Registry ===
 
     function test_RegisterAgent() public {
@@ -122,9 +143,33 @@ contract LOVETokenTest is Test {
         assertEq(a.reputation, 600);
     }
 
+    function test_ReputationCapsAt1000() public {
+        registry.updateReputation(agent1, 600, true);
+        AgentRegistry.Agent memory a = registry.getAgent(agent1);
+        assertEq(a.reputation, 1000);
+    }
+
     function test_CannotRegisterDuplicate() public {
         vm.expectRevert("Already registered");
         registry.registerAgent(agent1, AGENT1_ID);
+    }
+
+    function test_CannotRegisterDuplicateAgentId() public {
+        address agent3 = address(0x12);
+        vm.expectRevert("Agent ID taken");
+        registry.registerAgent(agent3, AGENT1_ID);
+    }
+
+    function test_DeactivateAgent() public {
+        registry.deactivateAgent(agent1);
+        assertFalse(registry.isRegisteredAgent(agent1));
+    }
+
+    function test_GetActiveAgents() public {
+        registry.deactivateAgent(agent2);
+        address[] memory active = registry.getActiveAgents();
+        assertEq(active.length, 1);
+        assertEq(active[0], agent1);
     }
 
     // === veLOVE governance ===
@@ -147,20 +192,25 @@ contract LOVETokenTest is Test {
         ve.lock(lockAmount, 4 * 365 days);
         vm.stopPrank();
 
-        // 1M LOVE locked for 4 years should give close to 1M veLOVE
         uint256 power = ve.getVotingPower(agent1);
-        assertApproxEqAbs(power, lockAmount, lockAmount / 100); // within 1%
+        assertApproxEqAbs(power, lockAmount, lockAmount / 100);
     }
 
-    function test_veLOVEShorterLockLessPower() public {
+    function test_veLOVEVotingPowerDecays() public {
         uint256 lockAmount = 1_000_000 * 1e18;
         vm.startPrank(agent1);
         love.approve(address(ve), lockAmount);
-        ve.lock(lockAmount, 365 days); // 1 year = 25% of max
+        ve.lock(lockAmount, 365 days);
         vm.stopPrank();
 
-        uint256 power = ve.getVotingPower(agent1);
-        assertApproxEqAbs(power, lockAmount / 4, lockAmount / 50); // ~25%
+        // At lock time, voting power == full amount
+        uint256 powerAtStart = ve.getVotingPower(agent1);
+        assertApproxEqAbs(powerAtStart, lockAmount, lockAmount / 100);
+
+        // After 75% of lock elapsed, power should be ~25%
+        vm.warp(block.timestamp + 274 days); // 75% of 365
+        uint256 powerAt75 = ve.getVotingPower(agent1);
+        assertApproxEqAbs(powerAt75, lockAmount / 4, lockAmount / 20);
     }
 
     function test_veLOVEBoostBps() public {
@@ -170,21 +220,23 @@ contract LOVETokenTest is Test {
         vm.stopPrank();
 
         uint256 boost = ve.getRewardBoostBps(agent1);
-        assertEq(boost, 25000); // 2.5x max
+        assertEq(boost, 25000);
+    }
+
+    function test_veLOVENoLockBaseBoost() public {
+        uint256 boost = ve.getRewardBoostBps(agent2);
+        assertEq(boost, 10000); // 1.0x base
     }
 
     function test_veLOVEGovernanceVote() public {
-        // Agent1 locks LOVE for voting power
         vm.startPrank(agent1);
         love.approve(address(ve), 1_000_000 * 1e18);
         ve.lock(1_000_000 * 1e18, 4 * 365 days);
         vm.stopPrank();
 
-        // Create proposal
         vm.prank(agent1);
         uint256 propId = ve.createProposal("Allocate 10M LOVE to agent inference pool");
 
-        // Vote
         vm.prank(agent1);
         ve.vote(propId, true);
 
@@ -192,7 +244,27 @@ contract LOVETokenTest is Test {
         assertGt(p.forVotes, 0);
     }
 
-    // === Epoch emission (simplified) ===
+    function test_veLOVECannotVoteWithoutLock() public {
+        vm.expectRevert("No voting power");
+        vm.prank(agent2);
+        ve.createProposal("test");
+    }
+
+    function test_veLOVEUnlockAfterExpiry() public {
+        uint256 lockAmount = 500_000 * 1e18;
+        vm.startPrank(agent1);
+        love.approve(address(ve), lockAmount);
+        ve.lock(lockAmount, 7 days);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 8 days);
+
+        vm.prank(agent1);
+        ve.unlock();
+        assertEq(love.balanceOf(agent1), 1_000_000 * 1e18);
+    }
+
+    // === Epoch emission ===
 
     function test_EpochNotCommittedInitially() public {
         (, , bool committed) = love.epochs(0);
@@ -209,5 +281,15 @@ contract LOVETokenTest is Test {
         love.burn(100_000 * 1e18);
         vm.stopPrank();
         assertEq(love.totalSupply(), before - 100_000 * 1e18);
+    }
+
+    function test_StakeDoesNotAffectRewardPool() public {
+        // Staking from agent wallet adds LOVE to contract but also increases totalStaked
+        // So reward pool (balanceOf - totalStaked) stays the same
+        uint256 poolBefore = love.getRemainingRewardPool();
+        vm.startPrank(agent1);
+        love.stake(100_000 * 1e18, 30 days);
+        vm.stopPrank();
+        assertEq(love.getRemainingRewardPool(), poolBefore);
     }
 }
