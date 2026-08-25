@@ -1,6 +1,6 @@
 # openclaw-lovelogic
 
-> LoveLogicAI's downstream layer for [OpenClaw](https://github.com/openclaw/openclaw) — consent-native memory kernel, deployment config, agent skills, and the $LOVE token.
+> LoveLogicAI's downstream layer for [OpenClaw](https://github.com/openclaw/openclaw) — consent-native memory kernel, deployment config, agent skills, and the $LOVE agent economy.
 
 ## What this is
 
@@ -10,11 +10,11 @@ OpenClaw (384k+ stars) is a personal AI assistant platform. This repo is **not a
 
 | Package | Description |
 |---------|-------------|
-| `@openclaw-lovelogic/memory-kernel` | Consent-native persistent memory architecture with provable vector purge. Consent-lease model → MemoryKernel → Verifier. |
-| `@openclaw-lovelogic/deploy-config` | Deployment configuration templates for Vercel, Cloudflare Workers, and Docker. |
-| `@openclaw-lovelogic/love-token` | $LOVE — ERC-20 on Base. Native currency for SAK agent economy. Epoch-based merkle emission. |
+| `@openclaw-lovelogic/memory-kernel` | Consent-native persistent memory with provable vector purge |
+| `@openclaw-lovelogic/deploy-config` | Deployment templates for Vercel, Cloudflare, Docker |
+| `@openclaw-lovelogic/love-token` | $LOVE — ERC-20 on Base + AgentRegistry + PnLOracle + veLOVE governance |
 
-## Architecture
+## $LOVE Economy Architecture
 
 ```
 openclaw/openclaw (platform, npm dependency)
@@ -22,58 +22,45 @@ openclaw/openclaw (platform, npm dependency)
         ▼
 ┌─────────────────────────────────────────────┐
 │    openclaw-lovelogic                        │
-│  ┌──────────────────────────────────┐        │
-│  │   memory-kernel                   │        │  ConsentGrant → Kernel → Verifier
-│  │   (L2 Owned Inference)            │        │  Provable purge on lease revocation
-│  └──────────────────────────────────┘        │
-│  ┌──────────────────────────────────┐        │
-│  │   love-token                      │        │  ERC-20 on Base
-│  │   (L3 P&L + L4 Marketplace)       │        │  Epoch-based agent reward emission
-│  └──────────────────────────────────┘        │
-│  ┌──────────────────────────────────┐        │
-│  │   deploy-config                   │        │  Vercel / Cloudflare / Docker templates
-│  └──────────────────────────────────┘        │
+│                                             │
+│  memory-kernel          love-token           │
+│  (L2 Inference)         ┌──────────────┐    │
+│                         │  LOVE (ERC-20) │   │
+│                         │  + staking    │   │
+│                         │  + slashing   │   │
+│                         └──────┬───────┘    │
+│                                │             │
+│                   ┌────────────┼──────────┐  │
+│                   │            │          │  │
+│              AgentRegistry  PnLOracle  veLOVE│
+│              (L1/L4)       (L2/L3)    (L5)  │
+│              identity      P&L→rewards  gov  │
+│              reputation   merkle      boost │
+│              slashing      oracle     vote  │
+│                                             │
+│  deploy-config (Vercel/CF/Docker)           │
 └─────────────────────────────────────────────┘
-```
-
-## Key concept: consent-lease memory
-
-Every memory is governed by a **consent lease**. Revoking the lease doesn't just hide the memory — it **purges the vector**, so the system's semantic behavior measurably diverges from its pre-revocation state.
-
-```
-consent-lease revocation → vector purge → semantic divergence
-```
-
-## Key concept: $LOVE agent economy
-
-$LOVE is the native currency for SAK's agent-to-agent commerce:
-
-```
-agent completes task → earns LOVE (epoch emission)
-agent needs inference → spends LOVE on L2 inference
-agent delegates sub-task → pays LOVE to sub-agent (L4)
-agent P&L settled → on-chain proof in LOVE (L3)
 ```
 
 ## Usage
 
 ```bash
-# Install
 pnpm install
-
-# Run tests
 pnpm test
 
-# Build contracts (requires Foundry)
-cd packages/love-token && forge build
+# Smart contracts
+cd packages/love-token
+forge install
+forge build
+forge test -vvv
 ```
 
 ## Relationship to LoveLogicAI stack
 
-- **SAK (Sovereign Agent Kernel)** — economic kernel, $LOVE is the settlement layer
-- **AgentOS** — governance kernel, uses consent-lease for capability tokens
-- **MCP Super-Server** — voice/tool layer, connects via the memory-kernel API
-- **PixelHQ ULTRA** — mission control HUD, visualizes memory state + $LOVE flows
+- **SAK** — $LOVE is the settlement layer for all 5 sovereignty layers
+- **AgentOS** — governance kernel uses consent-lease for capability tokens
+- **MCP Super-Server** — voice/tool layer connects via memory-kernel API
+- **PixelHQ ULTRA** — HUD visualizes memory state + $LOVE flows
 
 ## License
 
