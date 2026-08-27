@@ -1,7 +1,7 @@
 {
   "name": "@openclaw-lovelogic/memory-kernel",
-  "version": "0.1.0",
-  "description": "Consent-native persistent memory architecture — consent-lease governed vector memory with provable purge.",
+  "version": "0.2.0",
+  "description": "Consent-native persistent memory architecture — consent-lease governed vector memory with provable purge. Includes Violet Covenant Protocol (VCP) settlement and reputation invariants.",
   "type": "module",
   "main": "src/index.ts",
   "exports": {
@@ -9,7 +9,8 @@
     "./ConsentGrant": "./src/ConsentGrant/index.ts",
     "./Kernel": "./src/Kernel/index.ts",
     "./PersonaContract": "./src/PersonaContract/index.ts",
-    "./Verifier": "./src/Verifier/index.ts"
+    "./Verifier": "./src/Verifier/index.ts",
+    "./VCP": "./src/VCP/index.ts"
   },
   "scripts": {
     "test": "bun test",
