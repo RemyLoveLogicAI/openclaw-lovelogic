@@ -15,15 +15,10 @@ import "./AgentRegistry.sol";
  * @notice Computes agent rewards from on-chain P&L data and commits
  *         epoch merkle roots to the LOVE token contract.
  *
- * Reward Formula:
- *   baseReward = EPOCH_BASE_REWARD * (reputation / 1000)
- *   pnlBonus = max(0, pnl) * PNL_MULTIPLIER
- *   gasCost = gasConsumed * GAS_PRICE_ORACLE
- *   reward = baseReward + pnlBonus - gasCost
- *   reward = clamp(reward, 0, MAX_REWARD_PER_AGENT)
- *
- * The merkle tree is: leaf = keccak256(abi.encodePacked(agent, reward))
- * SAK orchestrator signs each P&L report off-chain and submits to this oracle.
+ * Security fixes applied (Audit v1.1):
+ *   H-2: 24h challenge period — proposed merkle root must survive challenge
+ *        window before being committed to LOVE token. Anyone can dispute.
+ *   L-3: Merkle padding uses bytes32(0) instead of first leaf
  */
 contract PnLOracle is IPnLOracle, Ownable, ReentrancyGuard {
     using ECDSA for bytes32;
@@ -33,21 +28,36 @@ contract PnLOracle is IPnLOracle, Ownable, ReentrancyGuard {
     AgentRegistry public agentRegistry;
 
     // --- Config ---
-    uint256 public constant EPOCH_BASE_REWARD = 50_000 * 1e18; // 50k LOVE base per epoch
-    uint256 public constant PNL_MULTIPLIER_BPS = 100; // 1x P&L (100 bps = 1.0x)
-    uint256 public constant MAX_REWARD_PER_AGENT = 500_000 * 1e18; // 500k LOVE max per epoch
-    uint256 public constant GAS_PRICE_ORACLE = 1 gwei; // approx Base gas price
+    uint256 public constant EPOCH_BASE_REWARD = 50_000 * 1e18;
+    uint256 public constant PNL_MULTIPLIER_BPS = 100;
+    uint256 public constant MAX_REWARD_PER_AGENT = 500_000 * 1e18;
+    uint256 public constant GAS_PRICE_ORACLE = 1 gwei;
 
     // --- Orchestrator ---
-    address public orchestrator; // SAK orchestrator signing P&L reports
+    address public orchestrator;
 
     // --- Epoch state ---
     mapping(uint256 => PnLReport[]) public epochReports;
     mapping(uint256 => EpochSummary) public epochSummaries;
     uint256[] public finalizedEpochs;
 
+    // --- H-2: Challenge period ---
+    uint256 public constant CHALLENGE_PERIOD = 24 hours;
+
+    struct ProposedRoot {
+        bytes32 merkleRoot;
+        uint256 totalAllocated;
+        uint256 proposedAt;
+        bool challenged;
+        bool committed;
+    }
+    mapping(uint256 => ProposedRoot) public proposedRoots;
+
     // --- Events ---
     event OrchestratorUpdated(address indexed oldOrchestrator, address indexed newOrchestrator);
+    event RootProposed(uint256 indexed epoch, bytes32 merkleRoot, uint256 totalAllocated, uint256 proposedAt);
+    event RootChallenged(uint256 indexed epoch, address challenger, string reason);
+    event RootCommitted(uint256 indexed epoch, bytes32 merkleRoot, uint256 totalAllocated);
 
     constructor(address _loveToken, address _agentRegistry, address _orchestrator) Ownable(msg.sender) {
         loveToken = LOVE(_loveToken);
@@ -66,23 +76,28 @@ contract PnLOracle is IPnLOracle, Ownable, ReentrancyGuard {
         emit PnLReported(_report.agent, _report.pnl, _report.tasksCompleted);
     }
 
-    // --- Epoch Finalization ---
+    // --- H-2: Two-phase finalization ---
 
-    function finalizeEpoch() external override onlyOwner nonReentrant returns (bytes32 merkleRoot, uint256 totalAllocated) {
+    function proposeEpoch() external onlyOwner nonReentrant {
         uint256 epoch = loveToken.currentEpoch();
+        _proposeEpoch(epoch);
+    }
+
+    function _proposeEpoch(uint256 epoch) internal {
         PnLReport[] storage reports = epochReports[epoch];
 
         require(reports.length > 0, "No reports for epoch");
-        require(epochSummaries[epoch].totalAllocated == 0, "Epoch already finalized");
+        require(!proposedRoots[epoch].committed, "Already committed");
+        require(proposedRoots[epoch].proposedAt == 0, "Already proposed");
 
         uint256 totalPnL = 0;
         uint256 totalTasks = 0;
+        uint256 totalAllocated = 0;
         bytes32[] memory leaves = new bytes32[](reports.length);
 
         for (uint256 i = 0; i < reports.length; i++) {
             PnLReport memory r = reports[i];
 
-            // Compute reward
             uint256 baseReward = (EPOCH_BASE_REWARD * agentRegistry.getAgent(r.agent).reputation) / 1000;
             uint256 pnlBonus = r.pnl > 0 ? uint256(int256(r.pnl)) * PNL_MULTIPLIER_BPS / 10000 : 0;
             uint256 gasCost = r.gasConsumed * GAS_PRICE_ORACLE;
@@ -98,11 +113,15 @@ contract PnLOracle is IPnLOracle, Ownable, ReentrancyGuard {
             leaves[i] = keccak256(abi.encodePacked(r.agent, reward));
         }
 
-        // Build merkle root (simple sorted pairs)
-        merkleRoot = _buildMerkleRoot(leaves);
+        bytes32 merkleRoot = _buildMerkleRoot(leaves);
 
-        // Commit to LOVE token
-        loveToken.commitEpoch(merkleRoot, totalAllocated);
+        proposedRoots[epoch] = ProposedRoot({
+            merkleRoot: merkleRoot,
+            totalAllocated: totalAllocated,
+            proposedAt: block.timestamp,
+            challenged: false,
+            committed: false
+        });
 
         epochSummaries[epoch] = EpochSummary({
             epoch: epoch,
@@ -113,9 +132,46 @@ contract PnLOracle is IPnLOracle, Ownable, ReentrancyGuard {
             totalAllocated: totalAllocated
         });
 
-        finalizedEpochs.push(epoch);
+        emit RootProposed(epoch, merkleRoot, totalAllocated, block.timestamp);
+    }
 
-        emit EpochFinalized(epoch, merkleRoot, totalAllocated);
+    function challengeRoot(uint256 _epoch, string calldata _reason) external {
+        ProposedRoot storage pr = proposedRoots[_epoch];
+        require(pr.proposedAt != 0, "No proposed root");
+        require(!pr.committed, "Already committed");
+        require(block.timestamp < pr.proposedAt + CHALLENGE_PERIOD, "Challenge period over");
+
+        pr.challenged = true;
+
+        emit RootChallenged(_epoch, msg.sender, _reason);
+    }
+
+    function commitEpochRoot(uint256 _epoch) external onlyOwner nonReentrant {
+        ProposedRoot storage pr = proposedRoots[_epoch];
+
+        require(pr.proposedAt != 0, "No proposed root");
+        require(!pr.committed, "Already committed");
+        require(!pr.challenged, "Root was challenged");
+        require(
+            block.timestamp >= pr.proposedAt + CHALLENGE_PERIOD,
+            "Challenge period not over"
+        );
+
+        pr.committed = true;
+
+        loveToken.commitEpoch(pr.merkleRoot, pr.totalAllocated);
+
+        finalizedEpochs.push(_epoch);
+
+        emit RootCommitted(_epoch, pr.merkleRoot, pr.totalAllocated);
+        emit EpochFinalized(_epoch, pr.merkleRoot, pr.totalAllocated);
+    }
+
+    // --- Backward compat wrapper ---
+    function finalizeEpoch() external override onlyOwner nonReentrant returns (bytes32 merkleRoot, uint256 totalAllocated) {
+        uint256 epoch = loveToken.currentEpoch();
+        _proposeEpoch(epoch);
+        return (proposedRoots[epoch].merkleRoot, proposedRoots[epoch].totalAllocated);
     }
 
     // --- Verification ---
@@ -159,7 +215,7 @@ contract PnLOracle is IPnLOracle, Ownable, ReentrancyGuard {
             uint256 half = (n + 1) / 2;
             for (uint256 i = 0; i < half; i++) {
                 bytes32 a = _leaves[i * 2];
-                bytes32 b = (i * 2 + 1 < n) ? _leaves[i * 2 + 1] : _leaves[0]; // pad with first leaf
+                bytes32 b = (i * 2 + 1 < n) ? _leaves[i * 2 + 1] : bytes32(0); // L-3: pad with zero
                 _leaves[i] = a < b ? keccak256(abi.encodePacked(a, b)) : keccak256(abi.encodePacked(b, a));
             }
             n = half;

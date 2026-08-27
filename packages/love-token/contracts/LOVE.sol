@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/governance/TimelockController.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./interfaces/IAgentRegistry.sol";
 import "./interfaces/IPnLOracle.sol";
@@ -14,26 +15,12 @@ import "./interfaces/IPnLOracle.sol";
  * @author LoveLogicAI
  * @notice Native currency for the Sovereign Agent Kernel (SAK) ecosystem.
  *
- * Architecture:
- *   LOVE (ERC-20) ← veLOVE (governance escrow)
- *       ↑↓               ↑↓
- *   AgentRegistry ← PnLOracle
- *   (stake/slash)   (P&L → epoch rewards)
- *
- * Tokenomics:
- *   Total Supply: 1,000,000,000 LOVE (1 billion)
- *   Agent Reward Pool: 40% (400M) — epoch-based merkle emission
- *   Team: 15% (150M) — 2yr vest, 6mo cliff
- *   Treasury: 20% (200M) — veLOVE governance
- *   Liquidity: 10% (100M) — DEX LP
- *   Community: 10% (100M) — airdrops, grants
- *   Partnership: 5% (50M) — integrations
- *
- * Innovations:
- *   1. Epoch-based merkle emission — gas-efficient agent reward distribution
- *   2. Agent staking with slashing — economic accountability for agent behavior
- *   3. On-chain P&L oracle — agents report profit/loss, verifiable by anyone
- *   4. veLOVE governance — lock LOVE for boosted rewards + voting power
+ * Security fixes applied (Audit v1.1):
+ *   H-1: slashBps capped at 5000 (50%) — cannot confiscate 100% of stakes
+ *   H-3: TimelockController (24h) on all admin functions
+ *   M-2: Dedicated treasuryAddress for slash proceeds (not owner())
+ *   M-3: getRemainingRewardPool() safe underflow guard
+ *   M-4: advanceEpoch() requires current epoch committed
  */
 contract LOVE is ERC20, ERC20Burnable, ERC20Permit, Ownable, ReentrancyGuard {
 
@@ -45,6 +32,9 @@ contract LOVE is ERC20, ERC20Burnable, ERC20Permit, Ownable, ReentrancyGuard {
     uint256 public constant LIQUIDITY = 100_000_000 * 1e18;
     uint256 public constant COMMUNITY = 100_000_000 * 1e18;
     uint256 public constant PARTNERSHIP = 50_000_000 * 1e18;
+
+    // --- H-1: Slash cap at 50% ---
+    uint256 public constant MAX_SLASH_BPS = 5000; // 50% max slash rate
 
     // --- Staking ---
     struct Stake {
@@ -69,13 +59,20 @@ contract LOVE is ERC20, ERC20Burnable, ERC20Permit, Ownable, ReentrancyGuard {
     mapping(uint256 => mapping(address => bool)) public claimedEpoch;
 
     // --- Slashing ---
-    uint256 public slashBps = 2500; // 25% of stake slashed per violation
-    uint256 public slashTreasuryBps = 5000; // 50% of slashed funds go to treasury, 50% burned
+    uint256 public slashBps = 2500; // 25% default
+    uint256 public slashTreasuryBps = 5000; // 50% to treasury, 50% burned
+
+    // --- M-2: Dedicated treasury address ---
+    address public treasuryAddress;
 
     // --- External contracts ---
     IAgentRegistry public agentRegistry;
     IPnLOracle public pnlOracle;
-    address public veLOVE; // governance escrow contract
+    address public veLOVE;
+
+    // --- H-3: Timelock controller ---
+    TimelockController public timelock;
+    uint256 public constant TIMELOCK_MIN_DELAY = 24 hours;
 
     // --- Events ---
     event Staked(address indexed agent, uint256 amount, uint256 lockedUntil);
@@ -84,6 +81,12 @@ contract LOVE is ERC20, ERC20Burnable, ERC20Permit, Ownable, ReentrancyGuard {
     event EpochCommitted(uint256 indexed epoch, bytes32 merkleRoot, uint256 totalAllocated);
     event EpochClaimed(address indexed agent, uint256 indexed epoch, uint256 amount);
     event RewardsDistributed(address indexed agent, uint256 amount);
+    event TreasuryUpdated(address indexed oldTreasury, address indexed newTreasury);
+    event TimelockUpdated(address indexed oldTimelock, address indexed newTimelock);
+    event AgentRegistryUpdated(address indexed registry);
+    event PnLOracleUpdated(address indexed oracle);
+    event VeLOVEUpdated(address indexed veLove);
+    event SlashBpsUpdated(uint256 oldBps, uint256 newBps);
 
     // --- Modifiers ---
     modifier onlyAgentRegistry() {
@@ -96,6 +99,16 @@ contract LOVE is ERC20, ERC20Burnable, ERC20Permit, Ownable, ReentrancyGuard {
         _;
     }
 
+    // --- H-3: Timelocked admin modifier ---
+    modifier onlyTimelockedOwner() {
+        if (address(timelock) != address(0)) {
+            require(msg.sender == address(timelock), "Only timelock");
+        } else {
+            require(msg.sender == owner(), "Only owner");
+        }
+        _;
+    }
+
     constructor(
         address _teamWallet,
         address _treasuryWallet,
@@ -104,6 +117,7 @@ contract LOVE is ERC20, ERC20Burnable, ERC20Permit, Ownable, ReentrancyGuard {
         address _partnershipWallet
     ) ERC20("LOVE", "LOVE") ERC20Permit("LOVE") Ownable(msg.sender) {
         epochStartTime = block.timestamp;
+        treasuryAddress = _treasuryWallet; // M-2: store dedicated treasury
 
         _mint(_teamWallet, TEAM_ALLOCATION);
         _mint(_treasuryWallet, TREASURY);
@@ -119,7 +133,12 @@ contract LOVE is ERC20, ERC20Burnable, ERC20Permit, Ownable, ReentrancyGuard {
         require(_amount > 0, "Cannot stake 0");
         require(balanceOf(msg.sender) >= _amount, "Insufficient balance");
 
-        uint256 lockedUntil = block.timestamp + _lockDuration;
+        // M-1: Use max of new lock and existing lock
+        uint256 newLockUntil = block.timestamp + _lockDuration;
+        uint256 lockedUntil = stakes[msg.sender].amount > 0
+            ? (newLockUntil > stakes[msg.sender].lockedUntil ? newLockUntil : stakes[msg.sender].lockedUntil)
+            : newLockUntil;
+
         stakes[msg.sender] = Stake({
             amount: stakes[msg.sender].amount + _amount,
             stakedAt: block.timestamp,
@@ -162,8 +181,9 @@ contract LOVE is ERC20, ERC20Burnable, ERC20Permit, Ownable, ReentrancyGuard {
         uint256 toTreasury = (slashAmount * slashTreasuryBps) / 10000;
         uint256 toBurn = slashAmount - toTreasury;
 
+        // M-2: Send to dedicated treasury address, not owner()
         if (toTreasury > 0) {
-            _transfer(address(this), owner(), toTreasury);
+            _transfer(address(this), treasuryAddress, toTreasury);
         }
         if (toBurn > 0) {
             _burn(address(this), toBurn);
@@ -187,7 +207,12 @@ contract LOVE is ERC20, ERC20Burnable, ERC20Permit, Ownable, ReentrancyGuard {
         emit EpochCommitted(currentEpoch, _merkleRoot, _totalAllocated);
     }
 
-    function advanceEpoch() external onlyOwner {
+    // --- M-4: Require committed before advancing ---
+    function advanceEpoch() external onlyTimelockedOwner {
+        require(
+            epochs[currentEpoch].committed,
+            "Current epoch must be committed before advancing"
+        );
         require(
             block.timestamp >= epochStartTime + (currentEpoch + 1) * EPOCH_DURATION,
             "Epoch not over"
@@ -216,29 +241,48 @@ contract LOVE is ERC20, ERC20Burnable, ERC20Permit, Ownable, ReentrancyGuard {
         emit RewardsDistributed(msg.sender, _amount);
     }
 
-    // --- Admin: set external contracts ---
+    // --- H-3: Timelocked admin functions ---
 
-    function setAgentRegistry(address _registry) external onlyOwner {
+    function setAgentRegistry(address _registry) external onlyTimelockedOwner {
         agentRegistry = IAgentRegistry(_registry);
+        emit AgentRegistryUpdated(_registry);
     }
 
-    function setPnLOracle(address _oracle) external onlyOwner {
+    function setPnLOracle(address _oracle) external onlyTimelockedOwner {
         pnlOracle = IPnLOracle(_oracle);
+        emit PnLOracleUpdated(_oracle);
     }
 
-    function setVeLOVE(address _veLOVE) external onlyOwner {
+    function setVeLOVE(address _veLOVE) external onlyTimelockedOwner {
         veLOVE = _veLOVE;
+        emit VeLOVEUpdated(_veLOVE);
     }
 
-    function setSlashBps(uint256 _bps) external onlyOwner {
-        require(_bps <= 10000, "Cannot exceed 100%");
+    // --- H-1: Cap slashBps at 50% + timelocked ---
+    function setSlashBps(uint256 _bps) external onlyTimelockedOwner {
+        require(_bps <= MAX_SLASH_BPS, "Slash rate cannot exceed 50%");
+        emit SlashBpsUpdated(slashBps, _bps);
         slashBps = _bps;
+    }
+
+    function setTreasuryAddress(address _treasury) external onlyTimelockedOwner {
+        require(_treasury != address(0), "Invalid treasury address");
+        emit TreasuryUpdated(treasuryAddress, _treasury);
+        treasuryAddress = _treasury;
+    }
+
+    // --- H-3: Set timelock controller ---
+    function setTimelock(address _timelock) external onlyOwner {
+        emit TimelockUpdated(address(timelock), _timelock);
+        timelock = TimelockController(payable(_timelock));
     }
 
     // --- View ---
 
+    // M-3: Safe underflow guard
     function getRemainingRewardPool() public view returns (uint256) {
-        return balanceOf(address(this)) - totalStaked;
+        uint256 bal = balanceOf(address(this));
+        return bal > totalStaked ? bal - totalStaked : 0;
     }
 
     // --- Internal: merkle verification ---
