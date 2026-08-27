@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { issueGrant, revokeGrant, isActive } from "../modules/ConsentGrant/index";
-import { verify } from "../modules/Verifier/index";
-import { MemoryKernel, semanticDistance, type Vector } from "../modules/Kernel/index";
+import { issueGrant, revokeGrant, isActive } from "../src/ConsentGrant/index";
+import { verify } from "../src/Verifier/index";
+import { MemoryKernel, semanticDistance, type Vector } from "../src/Kernel/index";
 
 const RESOURCE = "persona:alice/memory:childhood-home";
 
