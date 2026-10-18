@@ -1,0 +1,3 @@
+[submodule "packages/sovereign-transition-runtime"]
+	path = packages/sovereign-transition-runtime
+	url = https://github.com/RemyLoveLogicAI/sovereign-transition-runtime.git
