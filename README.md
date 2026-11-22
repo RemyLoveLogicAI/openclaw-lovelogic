@@ -55,6 +55,22 @@ forge build
 forge test -vvv
 ```
 
+## Deploy (Cloudflare Workers)
+
+The Worker lives in `packages/worker` (entry `src/index.ts`, config `wrangler.toml`). It exports the
+default `fetch` handler and the `MemoryStore` Durable Object (binding `MEMORY`), a persistent,
+consent-gated version of `MemoryKernel`.
+
+```bash
+pnpm install
+pnpm --filter @openclaw-lovelogic/worker build   # wrangler deploy --dry-run
+pnpm --filter @openclaw-lovelogic/worker dev     # local dev server
+```
+
+`.github/workflows/deploy.yml` deploys on every push to `main` that touches the Worker (or on manual
+dispatch). Add these repository secrets first: `CLOUDFLARE_API_TOKEN` (a token with
+"Edit Cloudflare Workers" permissions) and `CLOUDFLARE_ACCOUNT_ID`.
+
 ## Relationship to LoveLogicAI stack
 
 - **SAK** — $LOVE is the settlement layer for all 5 sovereignty layers

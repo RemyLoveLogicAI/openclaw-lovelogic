@@ -11,3 +11,6 @@ coverage/
 packages/love-token/lib/
 packages/love-token/cache/
 packages/love-token/out/
+
+# Wrangler local state
+.wrangler/
