@@ -4,10 +4,12 @@
   "description": "LoveLogicAI downstream layer for OpenClaw — consent-native memory kernel, deployment config, and agent skills.",
   "type": "module",
   "private": true,
+  "packageManager": "pnpm@12.21.0",
   "scripts": {
     "test": "pnpm -r test",
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "deploy": "pnpm --filter @openclaw-lovelogic/worker run deploy"
   },
   "devDependencies": {
     "typescript": "^5"

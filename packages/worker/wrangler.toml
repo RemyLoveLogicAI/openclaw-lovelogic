@@ -1,0 +1,16 @@
+name = "openclaw-deploy"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+MEMORY_KERNEL_URL = "https://memory-kernel.openclaw-lovelogic.workers.dev"
+
+[[durable_objects.bindings]]
+name = "MEMORY"
+class_name = "MemoryStore"
+
+# SQLite-backed Durable Object class (required for new DO classes on the Workers Free plan).
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MemoryStore"]

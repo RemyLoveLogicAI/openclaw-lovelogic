@@ -55,6 +55,29 @@ forge build
 forge test -vvv
 ```
 
+## Deploy (Cloudflare Workers)
+
+The Worker lives in `packages/worker` (entry `src/index.ts`, config `wrangler.toml`). It exports the
+default `fetch` handler and the `MemoryStore` Durable Object (binding `MEMORY`), a persistent,
+consent-gated version of `MemoryKernel`. `src/memory-store.ts` defines the `MemoryStoreApi` interface
+with an in-memory backend (tests) and a Durable Object storage backend (production); `src/router.ts`
+holds the HTTP routes.
+
+```bash
+pnpm install
+pnpm --filter @openclaw-lovelogic/worker typecheck
+pnpm --filter @openclaw-lovelogic/worker test    # vitest, runs under Node
+pnpm --filter @openclaw-lovelogic/worker build   # wrangler deploy --dry-run --outdir dist
+pnpm --filter @openclaw-lovelogic/worker dev     # local dev server
+```
+
+`.github/workflows/deploy.yml` runs typecheck, tests and `wrangler deploy --dry-run` on every PR to
+`main`. On push to `main` (Worker paths) or manual dispatch it deploys with `cloudflare/wrangler-action`,
+but only when the repository secrets `CLOUDFLARE_API_TOKEN` (a token with "Edit Cloudflare Workers"
+permission) and `CLOUDFLARE_ACCOUNT_ID` exist; otherwise the deploy job skips with a notice.
+The Durable Object binding needs no resource ID; if you add KV later, put the real namespace ID from
+`wrangler kv namespace create` in `wrangler.toml`.
+
 ## Relationship to LoveLogicAI stack
 
 - **SAK** — $LOVE is the settlement layer for all 5 sovereignty layers
