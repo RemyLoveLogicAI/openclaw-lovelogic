@@ -13,10 +13,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+      # Pin library versions: unpinned OpenZeppelin master now requires solc ^0.8.31,
+      # which fails against foundry.toml's solc = "0.8.24".
       - name: Install Foundry dependencies
         run: |
-          forge install foundry-rs/forge-std --no-git
-          forge install OpenZeppelin/openzeppelin-contracts --no-git
+          forge install foundry-rs/forge-std@v1.9.7 --no-git
+          forge install OpenZeppelin/openzeppelin-contracts@v5.1.0 --no-git
         working-directory: packages/love-token
       - name: Build contracts
         run: forge build
